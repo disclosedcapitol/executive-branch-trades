@@ -1,0 +1,42 @@
+name: Nightly data refresh
+
+on:
+  schedule:
+    # ~10:00 UTC — well after DisclosedCapitol's own 02:00 UTC pipeline.
+    - cron: "17 10 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Export dataset
+        env:
+          DC_API_KEY: ${{ secrets.DC_API_KEY }}
+        run: python scripts/export.py
+
+      - name: Commit if data changed
+        run: |
+          if [ -z "$(git status --porcelain -- data)" ]; then
+            echo "No data changes — skipping commit."
+            git checkout -- README.md 2>/dev/null || true
+            exit 0
+          fi
+          git config user.name "disclosedcapitol-bot"
+          git config user.email "actions@disclosedcapitol.com"
+          git add data README.md
+          git commit -m "chore(data): nightly refresh $(date -u +%F)"
+          git push
